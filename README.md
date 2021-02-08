@@ -6,7 +6,7 @@ It was developed in Python 3.8 but also runs in Python 3.7 using Visual studio i
 
 The program can be run on a local host but to run it on a website from your local server I recommend you install WAMP and use DYNDNSS.NET for free 
 domain names. Installing WAMP is covered by many websites which can be found with Google or Bing. WAMP installation can be difficult and requires
-some knowledge of the Windows system, including VC++ distrbutables installation, turning off IIS, setting the firewall properly, and setting the apache conf and vhosts conf correctly. I would approach getting WAMP running on your Windows machine as a separate project.
+some knowledge of the Windows system, including VC++ distributables installation, turning off IIS, setting the firewall properly, and setting the apache conf and vhosts conf correctly. I would approach getting WAMP running on your Windows machine as a separate project.
 
 It may not work if you use other means to publish Dash programs because it needs access to your local network to read the 
 OurWeather data. 
