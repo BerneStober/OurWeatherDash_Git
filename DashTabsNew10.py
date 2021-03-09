@@ -1,61 +1,88 @@
 import dash
 import os
-# change this below to where this code is located
-os.chdir(r'C:\Users\berny\source\repos\OurWeatherDash')
+import sys
+
+#edit this next line for your path
+os.chdir(r'C:\Users\XXXXX\source\repos\OurWeatherDashV3')
 import dash_html_components as html
 import dash_core_components as dcc
 import dash_table
 from dash_table.Format import Format, Scheme, Sign, Symbol
 import pandas as pd
-import Dash_functions2
+import Dash_functions3
 import plotly.express as px
 from dash.dependencies import Input, Output, State
-import datetime
+from datetime import datetime, date
+from dateutil.parser import parse
 import Records
 
 pd.set_option("display.max_rows", 20, "display.max_columns", 8)
 pd.set_option('display.width', 100)
-
-f = open("DashTabsNew10_debug_prints.txt", "a", encoding='utf-8')
 #units always start as metric
+graph_color = {"graph_bg": "#082255", "graph_line": "#007ACE"}
 
-# i use a pickle with a seprate routine that reads and stores the weather data in a
-# pickle because sometimes the data fetch from our weather is very slow
-# the pickle_data_loop.py script does the pickle storage; it is run with windows scheduler
-# so it is independent of both the SQL data storage and this Dash program for data display 
+#f = open("DashTabsNew10_debug_prints.txt", "a", encoding='utf-8')
+f = sys.stdout
+
 Use_pickle = 1
 Unit_toggle=0
 UnitDisplay = 'metric'
 OldUnit = 'English'
 # use 0 below to get all records
-dfdisplay_all, dfSQLall = Dash_functions2.GetSQLData(0)
+dfdisplay_all, dfSQLall = Dash_functions3.GetSQLData(0)
 
-dfdisplay, dfSQL = Dash_functions2.GetSQLData(3000)
+dfdisplay, dfSQL = Dash_functions3.GetSQLData(3000)
 
 DFRecords = Records.Records_trends(dfSQLall)
 
 print (DFRecords, '\n', file=f)
 
-# either read the pickle or get the data from the Ourweather device directly
+
 if Use_pickle == 1:
-    df = pd.read_pickle('Stored_ourweather_dataframe.pkl')
+    df = pd.read_pickle('Stored_ourweather_dataframe_V2.pkl')
 else:
-    df = Dash_functions2.readOURWEATHERData(UnitDisplay, OldUnit, Unit_toggle)
-    df.to_pickle('Stored_ourweather_dataframe.pkl')
+    df = Dash_functions3.readOURWEATHERData(UnitDisplay, OldUnit, Unit_toggle)
+    df.to_pickle('Stored_ourweather_dataframe_V2.pkl')
+
+#add HeatIndex and WindChill to df
+HI_row = {'Value':Dash_functions3.HeatIndex(df), 'Units':'degC', 'Measurement':'Calculated HeatIndex'}
+WC_row = {'Value':Dash_functions3.WindChill(df), 'Units':'degC', 'Measurement':'Calculated WindChill'}
+HI_row_df = pd.DataFrame([HI_row], index = ['HeatIndex'])
+WC_row_df = pd.DataFrame([WC_row], index = ['WindChill'])
+df = pd.concat([df,HI_row_df,WC_row_df])
+df = df.reindex(['OurWeatherTime','OutdoorTemperature','HeatIndex','WindChill','OutdoorHumidity','BarometricPressure','WindSpeedMax','CurrentWindGust','CurrentWindDirection','WindDirectionMin','WindDirectionMax','WindGustMax','WindGustMin','AirQualitySensor','Altitude','IndoorTemperature','RainTotal'])
+
 
 df = df[['Measurement','Value','Units']]
+#df.columns = ['Measurement','Value','Units']
 print (df, file=f)
 print (df.to_dict('records'), file=f)
 
-#get dates by dividing the dfSQL into eight equal date sectors
-#MinDate = dfSQLall.head(1)['OurWeather_DateTime'].dt.date
-#MaxDate = dfSQLall.tail(1)['OurWeather_DateTime'].dt.date
-MinDate = pd.Timestamp.date(dfSQLall.iloc[1,0])
-MaxDate = max(dfSQLall['OurWeather_DateTime'].dt.date)
-#print (MinDate, MaxDate)
+#get dates by diving the dfSQL into eight equal date sectors
+#this code gets squirrely because different versions of SQl handle datetime differently
+#test for whether the datetime is an object, if it is do parsing etc to handle
+#if it isnt assume it is a datetime
+
+if dfSQLall.OurWeather_DateTime.dtypes == 'O':
+    MinDate1 = dfSQLall.iloc[1,0]
+    row_count =  dfSQLall.shape[0]
+    MaxDate1 = dfSQLall.iloc[row_count-1,0]
+    print (MinDate1, MaxDate1, file=f)
+#Min = datetime.datetime.strptime(MinDate, '%Y-%m-%d %H:%M:%S')
+    MinDate = parse(MinDate1).date()
+#Max = datetime.datetime.strptime(MaxDate, '%Y-%m-%d %H:%M:%S')
+    MaxDate = parse(MaxDate1).date()
+    print (MinDate, MaxDate, file=f)
+
+else: 
+    print ('Assuming OurWeather_DateTime is a DateTime',file=f)
+    MinDate = pd.Timestamp.date(dfSQLall.iloc[1,0])
+    MaxDate = max(dfSQLall['OurWeather_DateTime'].dt.date)
+
+
 
 DateSection = (MaxDate - MinDate)/8
-#print (DateSection)
+print ('DateSection : ',DateSection, file=f)
 
 # not sure if this needed, dummy dates to define it
 dates = ['2015-02-17', '2015-05-17', '2015-08-17', '2015-11-17',
@@ -66,9 +93,11 @@ while i < 9:
     dates[i] = MinDate + i * DateSection
     i += 1 
 
+print ('Date array: ', dates,file=f)
+
 figRain_Total = px.line(dfSQLall, x='OurWeather_DateTime', y='Rain_Total', title='Rain Time Series')
 
-figOutdoor_Temperature = px.line(dfSQLall, x='OurWeather_DateTime', y='Outdoor_Temperature', title='Outdoor Temperature Time Series')
+figOutdoor_Temperature = px.line(dfSQLall, x='OurWeather_DateTime', y=['WindChill','HeatIndex','Outdoor_Temperature'], title='Outdoor Temperature Time Series')
 
 figOutdoor_Humidity = px.line(dfSQLall, x='OurWeather_DateTime', y='Outdoor_Humidity', title='Humidity Time Series')
 
@@ -77,10 +106,8 @@ figBarometric_Pressure = px.line(dfSQLall, x='OurWeather_DateTime', y='Barometri
 app = dash.Dash(name = __name__)
 app.config['suppress_callback_exceptions'] = True
 
-
 app.layout = html.Div([
-    # you will want to change this text to your weather station
-    html.H1('Welcome to the XXXXXX Weather Station at XXXXXXX. Located in XXXXXXXX.', style={'text-align':'center','color': 'white','background-color': 'black'}),
+    html.H1('Welcome to the Stobers Weather Station at MarKens Glen. Located in central Virginia.', style={'text-align':'center','color': 'white','background-color': 'black'}),
     dcc.Tabs(
         id="tabs-with-classes",
         value='tab-1',
@@ -124,11 +151,12 @@ def render_content(tab):
             html.Button('ConvertUnits', id='btn2', n_clicks=0),
             html.Div(id='container-button-basic',
              children='Default units are Metric. Values in pink are most likely bad data.'),
-            
+            #html.Div(id='container-button-timestamp'),
             dash_table.DataTable(
             id='table',
             data=df.to_dict('records'),
-            
+            #fixed_rows={'header':True},
+            #columns=[{"name": i, "id": i} for i in df.columns],
             columns=[{
             'id': 'Measurement',
             'name': 'Measurement',
@@ -141,12 +169,19 @@ def render_content(tab):
                 precision=2,
                 scheme=Scheme.fixed
                  ),
+            # equivalent manual configuration
+            # 'format': {
+            #     'locale': {
+            #         'symbol': ['', '˚F']
+            #     },
+            #     'specifier': '$.0f'
+            # }
             }, {
             'id': 'Units',
             'name': 'Unit',
             'type': 'text'
             },],
-            
+            #style_header={'backgroundColor': 'rgb(30, 30, 30)'},
             style_header={
             'backgroundColor': 'rgb(30, 30, 30)',
             'fontWeight': 'bold'
@@ -164,29 +199,31 @@ def render_content(tab):
                 }],
             style_data_conditional=[
             {'if': {
-                'row_index': 14,  # number | 'odd' | 'even'
+                'row_index': 16,  # number | 'odd' | 'even'
                 'column_id': 'Value'
             },
             'backgroundColor': 'hotpink',
             'color': 'white'
             },
-            {'if': {
-                'row_index': 11,  # number | 'odd' | 'even'
-                'column_id': 'Value'
-            },
-            'backgroundColor': 'hotpink',
-            'color': 'white'
-            }
+            # air quality is good with V2 board, comment out following
+            #{'if': {
+            #    'row_index': 11,  # number | 'odd' | 'even'
+            #    'column_id': 'Value'
+            #},
+            #'backgroundColor': 'hotpink',
+            #'color': 'white'
+            #}
             ]
             )
 
         ])
     elif tab == 'tab-2':
-        dfdisplay, dfSQL = Dash_functions2.GetSQLData(3000)
+        dfdisplay, dfSQL = Dash_functions3.GetSQLData(3000)
         return html.Div([
             html.Button('UnitConversion', id='btn4', n_clicks=0),
             dash_table.DataTable(
                 id='tableSQL',
+                #columns=[{"name": i, "id": i} for i in dfSQL.columns],
                 columns=[{'id': 'OurWeather_DateTime',
                 'name': 'OurWeather_DateTime','type': 'text',},
                 {'id': 'Outdoor_Temperature','name': 'Temperature','type': 'numeric',
@@ -209,6 +246,7 @@ def render_content(tab):
                 }, 
                 ],
                 data=dfdisplay.to_dict('records'),
+                #data=[]
                 fixed_rows={'headers': True, 'data': 1},
                 style_header={'backgroundColor': 'rgb(30, 30, 30)'},
                 style_cell={'textAlign': 'center','backgroundColor': 'rgb(50, 50, 50)',
@@ -240,13 +278,15 @@ def render_content(tab):
                     ], style = {'width' : '80%',
                                 'fontSize' : '20px',
                                 'padding-left' : '100px'}),
-                                
+                                #'display': 'inline-block'
+                                #'writing-mode': vertical-rl' }),
                     
             html.Div([
-                dcc.Graph(id='Outdoor_Temperature',figure=figOutdoor_Temperature),
+                dcc.Graph(id='Outdoor_Temperature',figure=figOutdoor_Temperature,),
                 ]),
                 
-                        
+            # range slider
+            
          # New Div for all elements in the new 'row' of the page    
             
             html.Div([
@@ -268,9 +308,9 @@ def render_content(tab):
             html.Button('UnitConversion', id='btn3', n_clicks=0),
             dash_table.DataTable(
                 id ='records',
-                
+                #columns=[{"name": i, "id": i} for i in DFRecords.columns],
                 data = DFRecords.to_dict('records'),
-                
+                #data=[]
                 columns=[{
             'id': 'Item',
             'name': 'Item',
@@ -283,7 +323,13 @@ def render_content(tab):
                 precision=2,
                 scheme=Scheme.fixed
                  ),
-            
+            # equivalent manual configuration
+            # 'format': {
+            #     'locale': {
+            #         'symbol': ['', '˚F']
+            #     },
+            #     'specifier': '$.0f'
+            # }
             }, {
             'id': 'Units',
             'name': 'Units',
@@ -306,15 +352,18 @@ def render_content(tab):
                 ]
             )
         ])
-
-#Add callback functions
+# Step 5. Add callback functions
 @app.callback(Output('Outdoor_Temperature', 'figure'),
              [Input('slider', 'value')])
 def update_figure(X):
     
-    dfSQLall2 = dfSQLall[(dfSQLall.OurWeather_DateTime.dt.date > dates[X[0]]) & (dfSQLall.OurWeather_DateTime.dt.date < dates[X[1]])]
+    if dfSQLall.OurWeather_DateTime.dtypes == 'O':
+        dfSQLall['OurWeather_DateTime'] = pd.to_datetime(dfSQLall['OurWeather_DateTime'], infer_datetime_format=True).dt.date
+        dfSQLall2 = dfSQLall[(dfSQLall.OurWeather_DateTime > dates[X[0]]) & (dfSQLall.OurWeather_DateTime < dates[X[1]])]
+    else:
+        dfSQLall2 = dfSQLall[(dfSQLall.OurWeather_DateTime.dt.date > dates[X[0]]) & (dfSQLall.OurWeather_DateTime.dt.date < dates[X[1]])]
     
-    fig = figOutdoor_Temperature = px.line(dfSQLall2, x='OurWeather_DateTime', y='Outdoor_Temperature', title='Outdoor Temperature Time Series')
+    fig = figOutdoor_Temperature = px.line(dfSQLall2, x='OurWeather_DateTime', y=['WindChill','HeatIndex','Outdoor_Temperature'], title='Outdoor Temperature Time Series')
     
     return fig
 
@@ -322,8 +371,12 @@ def update_figure(X):
              [Input('slider', 'value')])
 def update_figure(X):
     
-    dfSQLall2 = dfSQLall[(dfSQLall.OurWeather_DateTime.dt.date > dates[X[0]]) & (dfSQLall.OurWeather_DateTime.dt.date < dates[X[1]])]
-    
+    if dfSQLall.OurWeather_DateTime.dtypes == 'O':
+        dfSQLall['OurWeather_DateTime'] = pd.to_datetime(dfSQLall['OurWeather_DateTime'], infer_datetime_format=True).dt.date
+        dfSQLall2 = dfSQLall[(dfSQLall.OurWeather_DateTime > dates[X[0]]) & (dfSQLall.OurWeather_DateTime < dates[X[1]])]
+    else:
+        dfSQLall2 = dfSQLall[(dfSQLall.OurWeather_DateTime.dt.date > dates[X[0]]) & (dfSQLall.OurWeather_DateTime.dt.date < dates[X[1]])]
+
     fig = figOutdoor_Humidity = px.line(dfSQLall2, x='OurWeather_DateTime', y='Outdoor_Humidity', title='Outdoor Humidity Time Series')
     
     return fig
@@ -332,9 +385,13 @@ def update_figure(X):
              [Input('slider', 'value')])
 def update_figure(X):
        
-    dfSQLall2 = dfSQLall[(dfSQLall.OurWeather_DateTime.dt.date > dates[X[0]]) & (dfSQLall.OurWeather_DateTime.dt.date < dates[X[1]])]
+    if dfSQLall.OurWeather_DateTime.dtypes == 'O':
+        dfSQLall['OurWeather_DateTime'] = pd.to_datetime(dfSQLall['OurWeather_DateTime'], infer_datetime_format=True).dt.date
+        dfSQLall2 = dfSQLall[(dfSQLall.OurWeather_DateTime > dates[X[0]]) & (dfSQLall.OurWeather_DateTime < dates[X[1]])]
+    else:
+        dfSQLall2 = dfSQLall[(dfSQLall.OurWeather_DateTime.dt.date > dates[X[0]]) & (dfSQLall.OurWeather_DateTime.dt.date < dates[X[1]])]
     
-    print (dfSQLall['Barometric_Pressure'], dfSQLall2['Barometric_Pressure'], file=f)
+    #print (dfSQLall['Barometric_Pressure'], dfSQLall2['Barometric_Pressure'])
     
     fig = figBarometric_Pressure = px.line(dfSQLall2, x='OurWeather_DateTime', y='Barometric_Pressure', title='Barometric_Pressure Time Series')
     
@@ -344,7 +401,11 @@ def update_figure(X):
              [Input('slider', 'value')])
 def update_figure(X):
     
-    dfSQLall2 = dfSQLall[(dfSQLall.OurWeather_DateTime.dt.date > dates[X[0]]) & (dfSQLall.OurWeather_DateTime.dt.date < dates[X[1]])]
+    if dfSQLall.OurWeather_DateTime.dtypes == 'O':
+        dfSQLall['OurWeather_DateTime'] = pd.to_datetime(dfSQLall['OurWeather_DateTime'], infer_datetime_format=True).dt.date
+        dfSQLall2 = dfSQLall[(dfSQLall.OurWeather_DateTime > dates[X[0]]) & (dfSQLall.OurWeather_DateTime < dates[X[1]])]
+    else:
+        dfSQLall2 = dfSQLall[(dfSQLall.OurWeather_DateTime.dt.date > dates[X[0]]) & (dfSQLall.OurWeather_DateTime.dt.date < dates[X[1]])]
     
     fig = figRain_Total = px.line(dfSQLall2, x='OurWeather_DateTime', y='Rain_Total', title='Rain_Total Time Series')
     
@@ -357,7 +418,7 @@ def update_figure(X):
     )
 def updateTable(btn,btn2):
     changed_id = [p['prop_id'] for p in dash.callback_context.triggered][0]
-    print (changed_id, file=f)
+    print ('changed_id: ',changed_id,file=f)
     global Unit_Toggle, UnitDisplay, OldUnit, Use_pickle, df
     if 'btn1' in changed_id:
         Unit_toggle = 0
@@ -365,21 +426,30 @@ def updateTable(btn,btn2):
         if Use_pickle == 1:
             df = pd.read_pickle('Stored_ourweather_dataframe.pkl')
         else:
-            df = Dash_functions2.readOURWEATHERData(UnitDisplay, OldUnit, Unit_toggle)
+            df = Dash_functions3.readOURWEATHERData(UnitDisplay, OldUnit, Unit_toggle)
+        
+        HI_row = {'Value':Dash_functions3.HeatIndex(df), 'Units':'degC', 'Measurement':'Calculated HeatIndex'}
+        WC_row = {'Value':Dash_functions3.WindChill(df), 'Units':'degC', 'Measurement':'Calculated WindChill'}
+        HI_row_df = pd.DataFrame([HI_row], index = ['HeatIndex'])
+        WC_row_df = pd.DataFrame([WC_row], index = ['WindChill'])
+        df = pd.concat([df,HI_row_df,WC_row_df])
+        df = df.reindex(['OurWeatherTime','OutdoorTemperature','HeatIndex','WindChill','OutdoorHumidity','BarometricPressure','WindSpeedMax','CurrentWindGust','CurrentWindDirection','WindDirectionMin','WindDirectionMax','WindGustMax','WindGustMin','AirQualitySensor','Altitude','IndoorTemperature','RainTotal'])
+
 
         
         df = df[['Measurement','Value','Units']]
-        print ('In update data button', '\n', df, file=f)
-        
+        print ('In update data button', '\n', df,file=f)
+        #columns=[{"name": i, "id": i} for i in df.columns],
         return df.to_dict('records')
     elif 'btn2' in changed_id:
         #toggle units
         Unit_toggle=1
-        Unit_toggle, UnitDisplay, OldUnit, df = Dash_functions2.SwitchUnits(Unit_toggle, UnitDisplay, OldUnit, df)
-        print (df, '\n', 'UnitDisplay =', UnitDisplay,'OldUnit = ', OldUnit, 'Unit_toggle = ', Unit_toggle, file=f)
-        
-        print ('In toggle units data button', '\n', df, file=f)
-        
+        Unit_toggle, UnitDisplay, OldUnit, df = Dash_functions3.SwitchUnits(Unit_toggle, UnitDisplay, OldUnit, df)
+        print (df, '\n', 'UnitDisplay =', UnitDisplay,'OldUnit = ', OldUnit, 'Unit_toggle = ', Unit_toggle,file=f)
+        #df.columns = ['Value','Units','Measurement']
+        print ('In toggle units data button', '\n', df,file=f)
+        #data = df.to_dict('records')
+        #columns=[{"name": i, "id": i} for i in df.columns],
         return df.to_dict('records')
     else:
         #code added to try to force initial display
@@ -387,10 +457,19 @@ def updateTable(btn,btn2):
         if Use_pickle == 1:
             df = pd.read_pickle('Stored_ourweather_dataframe.pkl')
         else:
-            df = Dash_functions2.readOURWEATHERData(UnitDisplay, OldUnit, Unit_toggle)
-        df = df[['Measurement','Value','Units']]
-        print ('In update data button', '\n', df, file=f)
+            df = Dash_functions3.readOURWEATHERData(UnitDisplay, OldUnit, Unit_toggle)
         
+        HI_row = {'Value':Dash_functions3.HeatIndex(df), 'Units':'degC', 'Measurement':'Calculated HeatIndex'}
+        WC_row = {'Value':Dash_functions3.WindChill(df), 'Units':'degC', 'Measurement':'Calculated WindChill'}
+        HI_row_df = pd.DataFrame([HI_row], index = ['HeatIndex'])
+        WC_row_df = pd.DataFrame([WC_row], index = ['WindChill'])
+        df = pd.concat([df,HI_row_df,WC_row_df])
+        df = df.reindex(['OurWeatherTime','OutdoorTemperature','HeatIndex','WindChill','OutdoorHumidity','BarometricPressure','WindSpeedMax','CurrentWindGust','CurrentWindDirection','WindDirectionMin','WindDirectionMax','WindGustMax','WindGustMin','AirQualitySensor','Altitude','IndoorTemperature','RainTotal'])
+    
+            
+        df = df[['Measurement','Value','Units']]
+        print ('In update data button', '\n', df,file=f)
+        #columns=[{"name": i, "id": i} for i in df.columns],
         return df.to_dict('records')
 
 @app.callback(
@@ -399,20 +478,21 @@ def updateTable(btn,btn2):
     )
 def updateRecords(btn3):
     changed_id = [p['prop_id'] for p in dash.callback_context.triggered][0]
-    print (changed_id, file=f)
+    print ('changed_id: ',changed_id,file=f)
     global Unit_Toggle, UnitDisplay, OldUnit, DFRecords
     if 'btn3' in changed_id:
         #toggle units
         Unit_toggle=1
-        Unit_toggle, UnitDisplay, OldUnit, DFRecords = Dash_functions2.SwitchUnits(Unit_toggle, UnitDisplay, OldUnit, DFRecords)
-        print (DFRecords, '\n', 'UnitDisplay =', UnitDisplay,'OldUnit = ', OldUnit, 'Unit_toggle = ', Unit_toggle, file=f)
-        
-        print ('In toggle units data button', '\n', df, file=f)
-        
+        Unit_toggle, UnitDisplay, OldUnit, DFRecords = Dash_functions3.SwitchUnits(Unit_toggle, UnitDisplay, OldUnit, DFRecords)
+        print (DFRecords, '\n', 'UnitDisplay =', UnitDisplay,'OldUnit = ', OldUnit, 'Unit_toggle = ', Unit_toggle,file=f)
+        #df.columns = ['Value','Units','Measurement']
+        print ('In toggle units data button', '\n', df,file=f)
+        #data = df.to_dict('records')
+        #columns=[{"name": i, "id": i} for i in df.columns],
         return DFRecords.to_dict('records')
-        
+        #
     else:
-        
+        #code added to try to force initial display
         return DFRecords.to_dict('records')
 
 @app.callback(
@@ -421,20 +501,21 @@ def updateRecords(btn3):
     )
 def updateRecords(btn4):
     changed_id = [p['prop_id'] for p in dash.callback_context.triggered][0]
-    print (changed_id, file=f)
+    print ('changed_id: ',changed_id,file=f)
     global Unit_Toggle, UnitDisplay, OldUnit, dfdisplay
     if 'btn4' in changed_id:
         #toggle units
         Unit_toggle=1
-        Unit_toggle, UnitDisplay, OldUnit, dfdisplay = Dash_functions2.SwitchUnitsCols(Unit_toggle, UnitDisplay, OldUnit, dfSQL)
-        print (dfdisplay, '\n', 'UnitDisplay =', UnitDisplay,'OldUnit = ', OldUnit, 'Unit_toggle = ', Unit_toggle, file=f)
-        
-        print ('In toggle units data button', '\n', df, file=f)
-        
+        Unit_toggle, UnitDisplay, OldUnit, dfdisplay = Dash_functions3.SwitchUnitsCols(Unit_toggle, UnitDisplay, OldUnit, dfSQL)
+        print (dfdisplay, '\n', 'UnitDisplay =', UnitDisplay,'OldUnit = ', OldUnit, 'Unit_toggle = ', Unit_toggle,file=f)
+        #df.columns = ['Value','Units','Measurement']
+        print ('In toggle units data button', '\n', df,file=f)
+        #data = df.to_dict('records')
+        #columns=[{"name": i, "id": i} for i in df.columns],
         return dfdisplay.to_dict('records')
-        
+        #
     else:
-        
+        #code added to try to force initial display
         return dfdisplay.to_dict('records')
 
 server = app.server
