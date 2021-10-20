@@ -1,6 +1,6 @@
 # OurWeatherDash_Git
 Code for a Dash based weather reporting software for the Ourweather weather station kit from switchdoc.com . My website went down in May 2021 when my Win10PRO machine went belly up, so you can't access this now to see it in action. (BTW SSD's are vulnerable to power outages and baubles which we have frequently here in central Va.) Not sure when I will bring it back up. (You can check out the results of this program at 
-http://markensglenweather.ddnsfree.com/ . 
+http://markensglenweather.ddnsfree.com/ .)
 
 All of this was developed totally with freeware. To run this program you have to have installed MySql and use my 
 other Git repository https://github.com/BerneStober/Ourweather_MySQL to develop a database of your weather data. You will also need to install Python. 
